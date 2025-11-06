@@ -1,0 +1,101 @@
+完整教學：將新硬碟 /dev/nvme1n1 掛載為 /juancash（LVM + XFS）
+🪜 步驟 1️⃣：確認新硬碟
+lsblk
+
+
+輸出（簡化）：
+
+nvme0n1 ── 已使用（系統）
+nvme1n1 ── 200G 新硬碟 (無分割)
+
+🧱 步驟 2️⃣：建立分割區（非互動式）
+
+使用 parted 一次完成分割與類型設定：
+硬碟格式MBR
+parted -s /dev/nvme1n1 mklabel msdos
+parted -s /dev/nvme1n1 mkpart primary 0% 100%
+parted -s /dev/nvme1n1 set 1 lvm on
+
+硬碟格式GPT
+parted -s /dev/nvme1n1 mklabel gpt
+parted -s /dev/nvme1n1 mkpart primary 0% 100%
+parted -s /dev/nvme1n1 set 1 lvm on
+
+驗證：
+
+lsblk
+
+
+應看到 /dev/nvme1n1p1。
+
+🧾 步驟 3️⃣：建立 LVM 架構
+建立 Physical Volume
+pvcreate /dev/nvme1n1p1
+
+建立 Volume Group
+vgcreate vg_data /dev/nvme1n1p1
+
+建立 Logical Volume
+lvcreate -n lv_data -l 100%FREE vg_data
+
+
+驗證：
+
+lvs
+
+
+顯示：
+
+LV       VG       Attr       LSize   Pool Origin Data%  Meta%  Move Log Cpy%Sync Convert
+lv_data  vg_data  -wi-a----- 200.00g
+
+🧮 步驟 4️⃣：格式化檔案系統（XFS）
+mkfs.xfs /dev/vg_data/lv_data
+
+
+XFS 適合高 I/O、大檔案（Harbor / Docker / 資料存放用途最佳）。
+
+📂 步驟 5️⃣：建立掛載點並掛載
+mkdir -p /juancash
+mount /dev/vg_data/lv_data /juancash
+
+✅ 步驟 6️⃣：確認掛載狀況
+lsblk
+df -h /juancash
+
+
+輸出：
+
+/dev/mapper/vg_data-lv_data  200G  3.9G  197G   2% /juancash
+
+⚙️ 步驟 7️⃣：設定開機自動掛載
+
+查出 UUID：
+
+blkid /dev/vg_data/lv_data
+
+
+輸出：
+
+/dev/mapper/vg_data-lv_data: UUID="feab6b44-a8eb-464d-99a0-8d41909a82a7" TYPE="xfs"
+
+
+編輯 /etc/fstab：
+
+vi /etc/fstab
+
+
+在最後新增一行：
+
+UUID=feab6b44-a8eb-464d-99a0-8d41909a82a7  /juancash  xfs  defaults  0 0
+
+
+重新載入 systemd 設定：
+
+systemctl daemon-reload
+
+
+測試掛載設定：
+
+mount -a
+df -h /juancash
